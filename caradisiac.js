@@ -1,49 +1,68 @@
 const elasticsearch  = require('elasticsearch')
-const express        = require('express');
-const bodyParser     = require('body-parser');
-//const index          = require('./app/routes/index')
-//const db             = require('./config/db');
-
-
 const {getModels} = require('node-car-api');
+const {getBrands} = require('node-car-api');
+const fs = require('fs');
+var express = require('express');
+var documents = require('./app/routes/document');
 
-async function print () {
-  const models = await getModels('PEUGEOT');
+const router = express.Router();
+const app = express();
+var tmp = [];
+var indexName = "cars";
 
-  console.log(models);
+
+//*********************************
+//Get Audi's models and save it to Json file
+async function models (mod) {
+  const models = await getModels(mod);
+  return models;
 }
 
-const port = 9292;
-const app = express();
+async function brands () {
+  const brands = await getBrands();
+  return brands;
+}
 
-app.use(bodyParser.urlencoded({ extended: true }));
+var get_Mods = async function(){
+  var response = await brands()
+  tmp = response
+  response = await models(tmp[7])
+  return response
+}
 
-var client = new elasticsearch.Client({
-  host: 'localhost:9292',
-  apiVersion : "6.2",
-  log: 'trace'
+get_Mods().then(function(posts){
+  console.log(posts)
+  contentForFile = JSON.stringify(posts)
+  fs.appendFileSync('./cars.json', '');
+  fs.writeFileSync('./cars.json', contentForFile, "utf-8");
+}).catch(function(error){
+  console.log(error)
+})
+//*******************
+
+var elastic = require('./elastic');
+
+elastic.indexExists().then(function (exists) {  
+  if (exists) { 
+    return elastic.deleteIndex(); 
+  } 
+}).then(function () {
+  return elastic.initIndex().then(elastic.initMapping).then(function () {
+    var audi_cars = fs.readFileSync("./cars.json");
+    var promises = [JSON.parse(audi_cars)].map(function (models) {
+      return elastic.addDocument({
+        brand: models.brand,
+        model: models.model,
+        volume : models.volume,
+        uuid : models.uuid,
+        name: models.name,
+        metadata: {
+          ModelLength: models.length
+        }
+      });
+    });
+    return Promise.all(promises);
+  });
 });
 
-client.ping({ 
-  requestTimeout: 1000
-}, function (error) {
-  if (error) {
-    console.trace('elasticsearch cluster is down!');
-  } else {
-    console.log(print());
-  }
-});
-
-//client.bulk('./app/routes/index',)
-
-/*MongoClient.connect(db.url, (err, database) => {
-  if (err) return console.log(err)
-  // Make sure you add the database name and not the collection name
-  db = database.db("note-api");
-  require('./app/routes')(app, db);
-
-  app.listen(port, () => {
-    console.log('We are live on ' + port);
-  });               
-})*/
 
